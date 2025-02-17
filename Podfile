@@ -2,7 +2,7 @@ platform :ios, '8.0'
 
 target :StudyplusSDK do
     pod 'UICKeyChainStore', '1.0.4'
-    pod 'AFNetworking', '3.1.0'
+    pod 'AFNetworking'
 end
 
 target :StudyplusSDKTests do
