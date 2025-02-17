@@ -91,7 +91,7 @@ static NSInteger const ApiDefaultVersion = 1;
     manager.requestSerializer = requestSerializer;
     manager.responseSerializer = responseSerializer;
     
-    [manager POST:[self buildUrlFromPath:path] parameters:requestParams progress:^(NSProgress * _Nonnull uploadProgress) {
+    [manager POST:[self buildUrlFromPath:path] parameters:requestParams headers:nil progress:^(NSProgress * _Nonnull uploadProgress) {
     } success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
         NSDictionary *response = [NSJSONSerialization JSONObjectWithData:responseObject
                                                                  options:NSJSONReadingAllowFragments
