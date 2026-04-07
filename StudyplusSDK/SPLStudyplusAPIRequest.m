@@ -20,7 +20,6 @@
 //  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 //  THE SOFTWARE.
 
-#import "AFNetworking.h"
 #import "SPLStudyplusAPIRequest.h"
 #import "SPLStudyplusLogger.h"
 #import "SPLStudyplusError.h"
@@ -82,27 +81,78 @@ static NSInteger const ApiDefaultVersion = 1;
                   completed:(void(^)(NSDictionary *response))completed
                      failed:(void(^)(NSInteger httpStatusCode, NSError *error))failed
 {
-    AFHTTPResponseSerializer *responseSerializer = [AFHTTPResponseSerializer serializer];
-    AFJSONRequestSerializer *requestSerializer = [AFJSONRequestSerializer serializer];
-    [requestSerializer setValue:[NSString stringWithFormat:@"OAuth %@", self.accessToken]
-             forHTTPHeaderField:@"HTTP_AUTHORIZATION"];
+    NSString *urlString = [self buildUrlFromPath:path];
+    NSURL *url = [NSURL URLWithString:urlString];
     
-    AFHTTPSessionManager *manager = [AFHTTPSessionManager manager];
-    manager.requestSerializer = requestSerializer;
-    manager.responseSerializer = responseSerializer;
+    if (!url) {
+        NSError *urlError = [NSError errorWithDomain:@"SPLStudyplusAPIRequest"
+                                                code:-1
+                                            userInfo:@{NSLocalizedDescriptionKey: @"Invalid URL"}];
+        failed(0, urlError);
+        return;
+    }
     
-    [manager POST:[self buildUrlFromPath:path] parameters:requestParams headers:nil progress:^(NSProgress * _Nonnull uploadProgress) {
-    } success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
-        NSDictionary *response = [NSJSONSerialization JSONObjectWithData:responseObject
-                                                                 options:NSJSONReadingAllowFragments
-                                                                   error:nil];
-        StudyplusSDKLog(@"response: %@", response);
-        completed(response);
-    } failure:^(NSURLSessionDataTask * _Nullable task, NSError * _Nonnull error) {
-        StudyplusSDKLog(@"Error: %@", error);
-        NSHTTPURLResponse *res = (NSHTTPURLResponse *)task.response;
-        failed(res.statusCode, error);
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.HTTPMethod = @"POST";
+    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+    [request setValue:[NSString stringWithFormat:@"OAuth %@", self.accessToken]
+   forHTTPHeaderField:@"HTTP_AUTHORIZATION"];
+    
+    if (requestParams) {
+        NSError *jsonError = nil;
+        NSData *bodyData = [NSJSONSerialization dataWithJSONObject:requestParams
+                                                           options:0
+                                                             error:&jsonError];
+        if (jsonError) {
+            failed(0, jsonError);
+            return;
+        }
+        request.HTTPBody = bodyData;
+    }
+    
+    NSURLSessionDataTask *task =
+    [[NSURLSession sharedSession] dataTaskWithRequest:request
+                                    completionHandler:^(NSData * _Nullable data,
+                                                        NSURLResponse * _Nullable response,
+                                                        NSError * _Nullable error) {
+        NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
+        NSInteger statusCode = httpResponse.statusCode;
+        
+        if (error) {
+            StudyplusSDKLog(@"Error: %@", error);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                failed(statusCode, error);
+            });
+            return;
+        }
+        
+        NSError *jsonError = nil;
+        NSDictionary *json = nil;
+        
+        if (data.length > 0) {
+            id responseObject = [NSJSONSerialization JSONObjectWithData:data
+                                                               options:NSJSONReadingAllowFragments
+                                                                 error:&jsonError];
+            if ([responseObject isKindOfClass:[NSDictionary class]]) {
+                json = (NSDictionary *)responseObject;
+            }
+        }
+        
+        if (statusCode >= 200 && statusCode < 300) {
+            StudyplusSDKLog(@"response: %@", json);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                completed(json ?: @{});
+            });
+        } else {
+            StudyplusSDKLog(@"HTTP Error: %ld, response: %@", (long)statusCode, json);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                failed(statusCode, jsonError);
+            });
+        }
     }];
+    
+    [task resume];
 }
 
 - (NSString *)apiBaseURL
